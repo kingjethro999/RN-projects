@@ -1,0 +1,211 @@
+HomeScreen (Events) — Interview Walkthrough
+
+Tech + Purpose
+- React Native + Expo app screen that lists upcoming events from the device calendar and lets users create new events.
+- Uses expo-calendar (native calendar API), @react-native-community/datetimepicker for date/time pickers, and expo-blur for a blurred modal backdrop.
+
+Imports — What they do
+- React, useEffect, useState: Core React features and hooks for state and lifecycle.
+- react-native: Cross-platform primitives (View, Text, FlatList, TextInput, etc.), Platform detection, modal, touchable, etc.
+- Dimensions: Reads screen width/height for responsive modal sizing.
+- BlurView (expo-blur): Provides a blur overlay behind the bottom-sheet modal.
+- DateTimePicker/DateTimePickerAndroid: iOS uses inline pickers; Android uses a system modal picker.
+- expo-calendar: Read/write events to the device calendar.
+- ThemedText/ThemedView: App-specific components providing consistent theming (light/dark) and styles.
+
+Types
+- EventItem: Local TypeScript interface for normalized event data used by the UI: id, title, description, eventDate, dateCreated.
+
+Component State (useState)
+- hasPermission: Whether calendar permission is granted.
+- apiAvailable: Whether calendar API is available on this platform (not web, and Calendar available).
+- calendarId: The ID of the calendar used/created for "Local Events".
+- events: App-visible list of events (mapped/normalized from native events).
+- isModalVisible: Controls the bottom-sheet modal visibility for creating a new event.
+- title: New event title input.
+- description: New event description input.
+- eventDate: Date part of the new event (defaults to today).
+- eventTime: Time part of the new event (defaults to now).
+- showDatePicker: iOS-only inline date picker toggle.
+- showTimePicker: iOS-only inline time picker toggle.
+- isCreating: Loading flag while creating an event.
+
+Lifecycle
+- useEffect(() => { initializeCalendar(); }, []): On mount, checks API availability, requests permissions, ensures a calendar exists, loads events.
+
+Core Functions
+1) initializeCalendar()
+   - Checks if calendar API is available (not web + Calendar.isAvailableAsync()).
+   - Requests calendar permission. If granted, ensures/creates a dedicated "Local Events" calendar, stores its ID, and loads events from it.
+
+2) ensureLocalCalendar(): Promise<string>
+   - Reads existing calendars; reuses one named/title "Local Events" if found.
+   - If not found, gets a default source (iOS) or uses a local account (Android) and creates a new calendar titled "Local Events" with OWNER access.
+
+3) getDefaultCalendarSource()
+   - iOS helper: Calendar.getDefaultCalendarAsync() and returns its source, needed by Calendar.createCalendarAsync on iOS.
+
+4) loadEvents(id: string)
+   - Defines a time window: from 30 days ago up to 90 days in the future.
+   - Calendar.getEventsAsync([id], start, end) fetches events.
+   - Maps native events to EventItem (using notes as description), sorts by start time ascending, and sets into state.
+
+5) onDateChange / onTimeChange
+   - Updates the selected date/time for the event form.
+   - On Android, also hides the picker after selection.
+
+6) pickDateTimeAndroid(mode)
+   - Opens Android native date/time picker via DateTimePickerAndroid.open using the correct handler.
+
+7) openModal() / closeModal()
+   - Opens/closes the create-event bottom sheet. openModal resets the form.
+
+8) createEvent()
+   - Validates presence of calendarId and non-empty title.
+   - Merges eventDate + eventTime into a single start Date, sets an end time 1 hour later.
+   - Calendar.createEventAsync(calendarId, { title, startDate, endDate, notes }) to create the event.
+   - On success: closes modal, reloads events, and alerts the user.
+
+9) Formatting helpers
+   - formatDate(date): e.g., "Fri, Aug 22, 2025".
+   - formatTime(date): e.g., "02:30 PM".
+   - formatDateTime(date): Combines the above with "at".
+   - truncateText(text, maxLength=80): Shorten long descriptions for card UI.
+   - getTimeUntilEvent(eventDate): Returns relative labels: Today/Tomorrow/In N days/weeks/months or Past event.
+
+Rendering — Conditional Gates
+- If !apiAvailable: Show a screen explaining calendar is not available (e.g., web) and to use a mobile device.
+- If !hasPermission: Show a screen asking for permission with a button that re-runs initializeCalendar().
+
+Main UI Structure (when available + permitted)
+- ThemedView container with ScrollView:
+  - Header with title ("✨ My Events") and subtitle.
+  - List Container:
+    - Title showing count ("Your Upcoming Events (N)").
+    - If no events: empty state with guidance to tap +.
+    - Else: FlatList of events using renderEventItem and renderSeparator.
+- Floating Action Button (+): Opens the create-event bottom sheet modal.
+- Bottom Sheet Modal (renderBottomSheetModal):
+  - Modal visible flag bound to isModalVisible.
+  - Background BlurView + backdrop touch to close.
+  - Bottom sheet with handle, header (title + close button), and ScrollView form:
+    - Text inputs for title (required) and description.
+    - Date/Time pickers:
+      • On iOS: inline compact pickers toggled via buttons.
+      • On Android: tapping the buttons opens native pickers.
+    - Create button:
+      • Disabled when title is empty or during creation.
+      • Triggers createEvent().
+
+Item Renderers
+- renderEventItem({ item }):
+  - Card shows title, a right-aligned time-until badge (e.g., "In 2 days"), optional truncated description, and a footer line with the full formatted date/time.
+- renderSeparator(): small spacing between cards.
+
+Styling Overview (StyleSheet)
+- container: top/bottom padding, flex: 1.
+- header/title/subtitle: centered typography.
+- listContainer: rounded card-like area for list.
+- eventCard: rounded, padded, slight shadow.
+- timeUntilBadge: blue pill with white text.
+- emptyState: guidance when no events exist.
+- fab: circular blue button with shadow at bottom-right.
+- modalOverlay/blur/backdrop: bottom-sheet treatment with blurred backdrop.
+- bottomSheet: rounded top corners, shadow, height capped to 85% of screen height.
+- form inputs: consistent borders, padding, and interactive date/time buttons.
+- create button: primary blue, disabled variant gray.
+
+Platform Notes (Interview talking points)
+- Web support: Calendar API is not available on web; component gracefully shows a message. apiAvailable is set based on Platform + Calendar.isAvailableAsync.
+- iOS vs Android pickers: iOS uses inline DateTimePicker components; Android uses DateTimePickerAndroid.open() system dialogs.
+- Calendar source creation: iOS requires a real source (getDefaultCalendarSource), Android can use a local account stub (isLocalAccount: true) and passes source/sourceId.
+- Permissions: initializeCalendar() requests permissions on mount and when user taps retry; UI handles the lack of permission.
+- Data normalization: Native events are mapped to EventItem (title/notes/startDate -> eventDate) and sorted ascending.
+- Time handling: Combines date + time for startDate. Currently sets fixed 1-hour duration; discuss extending to custom duration, timezone considerations, all-day events handling.
+
+Edge Cases / Improvements To Mention
+- Timezone shifts: Using device local time; consider explicit timezone handling if syncing across devices.
+- Duplicate calendar: ensureLocalCalendar searches by name/title; collision risk if user already has a calendar named "Local Events" created by another app.
+- Error surface: initializeCalendar() swallows errors with console.warn; could surface a retry UI.
+- Pagination/window: loadEvents uses a fixed 120-day window; could add pull-to-refresh or dynamic range.
+- Accessibility: Add accessibility labels/hints for FAB and modal controls.
+- Deletion/editing: Only creation is implemented; could add edit/delete by long-pressing items.
+- Validation: Title only; could limit length or trim excessive whitespace.
+
+Step-by-Step Flow (User Journey)
+1) Screen mounts -> initializeCalendar().
+2) If API not available: shows message; stop.
+3) Ask for permission; if denied: show prompt with Grant Permission button.
+4) If granted: ensure or create calendar; fetch events in range; display list.
+5) User taps "+": opens bottom sheet; fills title/description; sets date/time.
+6) User taps "Create Event": createEvent() merges date/time, writes to calendar, closes modal, reloads events, shows success alert.
+
+Key Files Referenced
+- Themed components: '@/components/ThemedText', '@/components/ThemedView' (provide styled text/views aligned to theme). If asked, explain they likely wrap React Native primitives with theme colors.
+- This screen is most likely under 'app/index.tsx' or similar in an Expo Router app, but it can be moved/renamed as needed.
+
+Subtle Inline Comment Suggestions (copy-paste friendly)
+```tsx
+// useEffect: prime calendar on first mount.
+useEffect(() => { initializeCalendar(); }, [])
+
+// initializeCalendar: quick capability/permission bootstrap; avoids web path early.
+async function initializeCalendar() { /* ... */ }
+
+// ensureLocalCalendar: reuse existing "Local Events" or provision a local owner calendar.
+async function ensureLocalCalendar(): Promise<string> { /* ... */ }
+
+// getDefaultCalendarSource: iOS needs a concrete source when creating calendars.
+async function getDefaultCalendarSource() { /* ... */ }
+
+// loadEvents: fetch a rolling window; normalize and sort ascending for UI.
+async function loadEvents(id: string) { /* ... */ }
+
+// onDateChange: keep date/time selection decoupled; hide Android picker after pick.
+function onDateChange(_: DateTimePickerEvent, selectedDate?: Date) { /* ... */ }
+
+// onTimeChange: mirror date behavior; close Android dialog post-selection.
+function onTimeChange(_: DateTimePickerEvent, selectedTime?: Date) { /* ... */ }
+
+// pickDateTimeAndroid: delegate to platform dialogs for a native feel.
+function pickDateTimeAndroid(mode: 'date' | 'time') { /* ... */ }
+
+// openModal: reset inputs for a fresh create flow each time.
+function openModal() { /* ... */ }
+
+// closeModal: central close path; also collapses inline pickers on iOS.
+function closeModal() { /* ... */ }
+
+// createEvent: guardrails + merge date/time; simple 60m slot; refresh list on success.
+async function createEvent() { /* ... */ }
+
+// formatDate: concise, locale-aware date label for cards/buttons.
+function formatDate(date: Date): string { /* ... */ }
+
+// formatTime: 12h, zero-padded minutes for readability.
+function formatTime(date: Date): string { /* ... */ }
+
+// formatDateTime: single-line summary used in card footer.
+function formatDateTime(date: Date): string { /* ... */ }
+
+// truncateText: lightweight guard against overflowing descriptions.
+function truncateText(text: string, maxLength = 80): string { /* ... */ }
+
+// getTimeUntilEvent: quick-glance relative phrasing (Today/Tomorrow/In N...).
+function getTimeUntilEvent(eventDate: Date): string { /* ... */ }
+
+// renderEventItem: compact card with status badge and footer metadata.
+const renderEventItem = ({ item }: { item: EventItem }) => { /* ... */ }
+
+// renderSeparator: add breathing room between cards.
+const renderSeparator = () => <View style={styles.separator} />
+
+// renderBottomSheetModal: blurred backdrop + sheet ergonomics for creation.
+const renderBottomSheetModal = () => { /* ... */ }
+```
+
+How to Explain in an Interview
+- Start with high-level purpose: "This screen is a calendar-backed events list with a create-event flow."
+- Walk through platform/permission handling, then calendar provisioning, then data-loading, then UI breakdown (list + FAB + modal form).
+- Call out platform differences (iOS/Android pickers, calendar source), and safe defaults (1-hour duration, sorting, truncation).
+- End with potential improvements and edge cases to demonstrate critical thinking.
